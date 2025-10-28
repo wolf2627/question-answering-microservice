@@ -6,6 +6,7 @@ Complete guide to the project's file organization, explaining the purpose of eac
 
 ```
 question-answering/
+├── .dockerignore             # Files/folders excluded from Docker build context
 ├── .env                      # Environment variables (not in git)
 ├── .env.example              # Template for environment configuration
 ├── .github/                  # GitHub-specific files
@@ -13,12 +14,15 @@ question-answering/
 ├── .gitignore                # Git ignore patterns
 ├── .python-version           # Python version specification (for pyenv/uv)
 ├── .venv/                    # Virtual environment (created by uv)
+├── Dockerfile                # Image definition (uses uv, runs entrypoint)
 ├── Makefile                  # Common development commands
 ├── README.md                 # Project overview and quick start
 ├── docs/                     # Detailed documentation
 ├── documents/                # Source documents to index
 ├── embeddings/               # ChromaDB vector database (generated)
 ├── main.py                   # Legacy entry point (not actively used)
+├── docker-compose.yml        # Compose stack exposing API on :8000
+├── docker-entrypoint.sh      # Container entrypoint (make index → make dev)
 ├── pyproject.toml            # Project metadata and dependencies
 ├── src/                      # Application source code
 └── uv.lock                   # Locked dependency versions
@@ -343,6 +347,40 @@ embeddings/
 *.pyc
 .DS_Store
 ```
+
+### `.dockerignore`
+**Purpose:** Excludes local-only files from Docker build context  
+**Key Entries:**
+```
+.git
+.venv/
+documents/
+embeddings/
+docker-compose.yml
+```
+**Why:** Keeps images lean and prevents sensitive data (e.g., `.env`) from being copied.
+
+### `Dockerfile`
+**Purpose:** Defines the application container image  
+**Highlights:**
+- Based on `python:3.12-slim`
+- Installs `uv`, syncs dependencies via `uv sync --frozen --no-dev`
+- Copies the repo (respecting `.dockerignore`)
+- Grants execute permission to the entrypoint and exposes port `8000`
+
+### `docker-entrypoint.sh`
+**Purpose:** Container startup script  
+**Steps:**
+1. Runs `make index` to (re)build embeddings on boot
+2. Executes `make dev` (starts FastAPI with auto-reload)
+
+### `docker-compose.yml`
+**Purpose:** Local orchestration / production-like stack  
+**Features:**
+- Builds the Dockerfile image
+- Mounts `documents/` (read-only) and `embeddings/` (persistent)
+- Loads environment variables from `.env`
+- Publishes the API on `http://localhost:8000`
 
 ---
 
