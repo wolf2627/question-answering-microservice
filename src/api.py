@@ -34,7 +34,7 @@ class SourceAttribution(BaseModel):
 
 class AskRequest(BaseModel):
     """Request payload for /ask (question must be non-empty and reasonably sized)."""
-    question: str = Field(..., min_length=3, max_length=2000, description="Natural language question to answer")
+    question: str = Field(..., min_length=3, max_length=500, description="Natural language question to answer")
 
     @validator("question", pre=True)
     def strip_and_validate(cls, v: str) -> str:
@@ -399,3 +399,17 @@ async def ask_question(
 async def health_check() -> JSONResponse:
     """Health check endpoint."""
     return JSONResponse(content={"status": "ok"}, status_code=status.HTTP_200_OK)
+
+# manual test endpoint for general info
+@app.get("/", response_class=JSONResponse)
+async def root() -> JSONResponse:
+    """Simple root endpoint with service info."""
+    info = {
+        "service": "Question Answering Service",
+        "version": "1.0.0",
+        "endpoints": {
+            "/ask": "POST endpoint to ask a question",
+            "/health": "GET health check endpoint",
+        },
+    }
+    return JSONResponse(content=info, status_code=status.HTTP_200_OK)
