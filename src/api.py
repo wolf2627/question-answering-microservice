@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import traceback
 from functools import lru_cache
 from typing import AsyncIterator
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field, validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception, RetryError
 
@@ -94,6 +97,52 @@ def _should_retry(exc: Exception) -> bool:
 
     return False
 
+# ---------------------------
+# Exception handlers (centralized & sanitized responses)
+# ---------------------------
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Keep the detailed list shape (422) — useful for client debugging, but can be shortened
+    logger.info("Validation error for %s %s: %s", request.method, request.url, exc.errors())
+    return _error_response(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        message="Validation failed",
+        details=exc.errors(),
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # Normalize detail shape while preserving status code.
+    detail = exc.detail
+    if isinstance(detail, str) and detail.strip():
+        message = detail.strip()
+        details = None
+    else:
+        message = "Request failed"
+        details = detail
+    logger.info(
+        "HTTP exception %s for %s %s: %s",
+        exc.status_code,
+        request.method,
+        request.url,
+        {"message": message, "details": details},
+    )
+    return _error_response(status_code=exc.status_code, message=message, details=details)
+
+@app.exception_handler(RetryError)
+async def retry_exception_handler(request: Request, exc: RetryError):
+    # Tenacity exhausted retries — return a sanitized 502 while logging the inner exception
+    logger.error("Retries exhausted for request %s %s: %s", request.method, request.url, traceback.format_exc())
+    return _error_response(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        message="Upstream service temporarily unavailable; please retry later.",
+    )
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    # Catch-all - do NOT expose exc to the client. Log full traceback server-side.
+    logger.exception("Unhandled exception handling request %s %s: %s", request.method, request.url, traceback.format_exc())
+    return _error_response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, message="Internal server error")
 
 # Synchronous wrappers with tenacity (called from threads)
 @retry(
@@ -132,10 +181,12 @@ async def _retrieve_context(*, question: str, openai_client: OpenAIClient, vecto
         return chunks
     except RetryError as re:
         logger.error("Retries exhausted during retrieval: %s", re)
+        # Do not expose internal exception text to the client
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Context retrieval failed after retries")
     except Exception as e:
         logger.exception("Error during context retrieval")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
+        # Sanitize for client
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Context retrieval failed") from e
 
 
 async def _generate_answer(*, question: str, chunks: list[RetrievedChunk], openai_client: OpenAIClient, settings: Settings) -> str:
@@ -183,7 +234,8 @@ async def _generate_answer(*, question: str, chunks: list[RetrievedChunk], opena
         raise
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("Generation failed")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        # Sanitize for client
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Generation failed") from exc
 
 # Helpers & deps used by endpoints
 def _sources_from_chunks(chunks: list[RetrievedChunk]) -> list[SourceAttribution]:
@@ -206,18 +258,48 @@ def _sources_from_chunks(chunks: list[RetrievedChunk]) -> list[SourceAttribution
 def get_settings_dep() -> Settings:
     return get_settings()
 
-
 def get_vector_store_dep(settings: Settings = Depends(get_settings_dep)) -> VectorStore:
     return _get_vector_store_cached(settings)
-
 
 def get_openai_client_dep(settings: Settings = Depends(get_settings_dep)) -> OpenAIClient:
     return _get_openai_client_cached(settings)
 
+def _error_payload(status_code: int, message: str, *, details: object | None = None) -> dict[str, object]:
+    def _json_safe(value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, BaseModel):
+            return value.model_dump()
+        if isinstance(value, (set, tuple)):
+            return [_json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _json_safe(val) for key, val in value.items()}
+        if isinstance(value, list):
+            return [_json_safe(item) for item in value]
+        try:
+            json.dumps(value)
+            return value
+        except TypeError:
+            return str(value)
+
+    error: dict[str, object] = {
+        "status": int(status_code),
+        "message": str(message),
+    }
+    if details is not None:
+        error["details"] = _json_safe(details)
+    return {"error": error}
+
+
+def _error_response(status_code: int, message: str, *, details: object | None = None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content=_error_payload(status_code, message, details=details),
+    )
+
 
 def _serialize_event(event_name: str, payload: dict) -> bytes:
     return (json.dumps({"event": event_name, "data": payload}) + "\n").encode("utf-8")
-
 
 # Endpoints 
 @app.post("/ask", response_model=AskResponse)
@@ -273,10 +355,30 @@ async def ask_question(
                 },
             )
         except HTTPException as exc:
-            yield _serialize_event("error", {"detail": exc.detail})
+            # exc.detail may be structured (dict/list) thanks to our handlers
+            if isinstance(exc.detail, str) and exc.detail.strip():
+                message = exc.detail.strip()
+                details = None
+            else:
+                message = "Request failed"
+                details = exc.detail
+            yield _serialize_event(
+                "error",
+                _error_payload(
+                    exc.status_code,
+                    message,
+                    details=details,
+                ),
+            )
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Streaming error")
-            yield _serialize_event("error", {"detail": str(exc)})
+            yield _serialize_event(
+                "error",
+                _error_payload(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "Internal streaming error",
+                ),
+            )
 
     return StreamingResponse(event_stream(), media_type="application/json")
 

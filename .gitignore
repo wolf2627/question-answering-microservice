@@ -18,3 +18,5 @@ documents/
 .envrc
 
 embeddings/*
+
+.github/
