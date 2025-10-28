@@ -96,8 +96,11 @@ This:
 
 **Progress Output:**
 ```
-TODO: add output of ingest
-
+Processing file: documents/example.pdf
+Built 45 chunks from 1 documents
+Embedded 30 items in current batch
+Indexed 45/45 chunks (100%)
+Completed ingestion for 1 documents
 ```
 
 ## Running the API
@@ -122,6 +125,38 @@ The API will be available at:
 ```bash
 uv run uvicorn src.api:app --host 0.0.0.0 --port 8000 --workers 4
 ```
+
+### Docker Compose (Containerized)
+
+The repository ships with a production-ready `Dockerfile`, `.dockerignore`, and `docker-compose.yml`.
+
+1. Make sure your `.env` file is present (it is mounted into the container).
+2. Build and start the stack:
+
+  ```bash
+  docker compose up --build
+  ```
+
+  The container entrypoint runs `make index` before starting the API, ensuring your documents are embedded on boot. The service becomes available at `http://localhost:8000`.
+
+3. To run in detached mode:
+
+  ```bash
+  docker compose up --build -d
+  ```
+
+4. To stop and clean up containers:
+
+  ```bash
+  docker compose down
+  ```
+
+#### Bind Mounts
+
+- `./documents` ➜ `/app/documents` (read-only): update your local docs without rebuilding the image.
+- `./embeddings` ➜ `/app/embeddings`: preserves the ChromaDB index between restarts.
+
+If you do not need persistence, remove or adjust the volume mappings in `docker-compose.yml`.
 
 ## Verifying the Setup
 
