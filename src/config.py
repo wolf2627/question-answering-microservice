@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from functools import lru_cache
 import os
 
 from dotenv import load_dotenv
+
+DEFAULT_RESPONSE_INSTRUCTIONS = (
+    "You are a helpful AI assistant. Provide concise and accurate answers based on the provided context."
+)
+
+def _load_response_instructions() -> str:
+    """Load response instructions from file, falling back to default when missing or empty."""
+    path = Path(os.getenv("RESPONSE_INSTRUCTIONS_PATH", "instruction.txt"))
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+        if content:
+            return content
+    except FileNotFoundError:
+        pass
+    return DEFAULT_RESPONSE_INSTRUCTIONS
 
 # Loads environment variables from the .env file
 load_dotenv()
@@ -31,7 +46,8 @@ class Settings:
 
     top_k: int = int(os.getenv("TOP_K", "10"))
 
-    response_instructions: str = """You are a helpful AI assistant. Provide concise and accurate answers based on the provided context."""
+    response_instructions_path: Path = Path(os.getenv("RESPONSE_INSTRUCTIONS_PATH", "instruction.txt"))
+    response_instructions: str = field(default_factory=_load_response_instructions)
     response_model: str = os.getenv("RESPONSE_MODEL", "gpt-4.1-nano")
     response_max_tokens= int = int(os.getenv("RESPONSE_MAX_TOKENS", "300"))
     response_temperature: float = float(os.getenv("RESPONSE_TEMPERATURE", "0.0"))
