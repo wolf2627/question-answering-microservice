@@ -356,16 +356,28 @@ async def ask_question(
             )
         except HTTPException as exc:
             # exc.detail may be structured (dict/list) thanks to our handlers
-            if isinstance(exc.detail, str) and exc.detail.strip():
-                message = exc.detail.strip()
+            status_code = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+            detail_payload = exc.detail
+
+            if (
+                isinstance(detail_payload, dict)
+                and isinstance(detail_payload.get("error"), dict)
+                and detail_payload["error"].get("message")
+            ):
+                error_block = detail_payload["error"]
+                message = str(error_block.get("message", "Request failed"))
+                details = error_block.get("details")
+            elif isinstance(detail_payload, str) and detail_payload.strip():
+                message = detail_payload.strip()
                 details = None
             else:
                 message = "Request failed"
-                details = exc.detail
+                details = detail_payload
+
             yield _serialize_event(
                 "error",
                 _error_payload(
-                    exc.status_code,
+                    status_code,
                     message,
                     details=details,
                 ),
