@@ -1,0 +1,508 @@
+{
+  "name": "QA Orchestration",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "/ask",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -416,
+        152
+      ],
+      "id": "e9d853ec-5831-47bd-b2ae-3868f36432ab",
+      "name": "Webhook",
+      "webhookId": "f9ae935d-d3cd-4832-9ca5-2cb4fcf2ff40"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7716c15e-bd43-4195-8197-ce6d9d87f1ab",
+              "name": "request",
+              "value": "={{ $('Webhook').item.json.body.question }}",
+              "type": "string"
+            },
+            {
+              "id": "91e0a72c-08e4-47b4-b15d-a145b0856c85",
+              "name": "response",
+              "value": "={{ $('Fetch Answer').item.json.answer }}",
+              "type": "string"
+            },
+            {
+              "id": "08ee079a-1416-4332-8feb-2351be022980",
+              "name": "latency_in_ms",
+              "value": "={{ $json.latencyMs }}",
+              "type": "number"
+            },
+            {
+              "id": "027ecbf9-c824-4311-88e9-02881355c977",
+              "name": "sources",
+              "value": "={{ $('Fetch Answer').item.json.sources }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        704,
+        -16
+      ],
+      "id": "53a6b34c-28d1-4707-9764-480ef5f4c7e1",
+      "name": "Set Data"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://<Ip>:<Port>/ask",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "question",
+              "value": "={{ $('Extract Question').item.json.question }}"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        256,
+        152
+      ],
+      "id": "0e889f66-b57a-406b-bace-b8d35529fe8a",
+      "name": "Fetch Answer",
+      "retryOnFail": false,
+      "waitBetweenTries": 500,
+      "notesInFlow": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assume incoming items: [{ json: { startTime } }]\nconst startTime = $('Start Timer').first().json.startTime\nconst endTime = Date.now();\nconst latencyMs = endTime - startTime; // latency in milliseconds\n\nreturn [{ json: { startTime, endTime, latencyMs } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -16
+      ],
+      "id": "7e198a50-cd5a-4628-9ac7-3b579200af8a",
+      "name": "Latency Calculator"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Record current timestamp (milliseconds)\nconst startTime = Date.now();\nreturn { json: { startTime } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        152
+      ],
+      "id": "b15cbcd0-697f-4fd8-94e8-e9ab5b728cb5",
+      "name": "Start Timer"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={\n  \"Answer\": \"{{ $('Fetch Answer').item.json.answer }}\",\n\"Sources\": \"{{ $json.documents }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2048,
+        -88
+      ],
+      "id": "4e57dce4-f098-468f-8f0d-a1ec9c889b20",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "collection": "log",
+        "fields": "request, response, latency_in_ms",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.2,
+      "position": [
+        928,
+        128
+      ],
+      "id": "f447db5e-b2cd-4981-a5b7-9755fe418ba0",
+      "name": "Log",
+      "credentials": {
+        "mongoDb": {
+          "id": "asrOYgjgOVzciwoU",
+          "name": "Assessment"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "16acc183-f2f5-4822-9bba-93c4750f5f79",
+              "name": "question",
+              "value": "={{ $json.body.question }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -192,
+        152
+      ],
+      "id": "4db1f06d-baa2-4589-a655-4acf4a5be8f9",
+      "name": "Extract Question"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "document",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        -160
+      ],
+      "id": "0cf0f2f8-6a03-4396-94ba-6623dd915091",
+      "name": "Fetch Documents"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "sources",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        928,
+        -160
+      ],
+      "id": "764d0bd5-0bfd-4880-9310-2d549e9e0412",
+      "name": "Fetch Sources"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        -160
+      ],
+      "id": "fe096194-c0e2-4efa-8aa1-b1e59a3d8bd7",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "document",
+              "renameField": true,
+              "outputFieldName": "documents"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        -160
+      ],
+      "id": "feb47891-9b94-4964-9aaf-339929cde40f",
+      "name": "Final Unique Documents"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1840,
+        -32
+      ],
+      "id": "f0718b75-32fd-4a74-93a0-408cda702e57",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "sendTo": "ToMailId@gmail.com",
+        "subject": "=Failure Alert: Error Occurred on workflow - {{ $workflow.name }}",
+        "emailType": "text",
+        "message": "=Error Occured, fix it ASAP.\n\nError: {{ $json.error.message }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1152,
+        224
+      ],
+      "id": "30fd10e6-2553-40e8-89ce-d170b9b21eb8",
+      "name": "Failure Alert",
+      "webhookId": "9c0d3349-dd20-43ff-ade1-b1251e35ae37",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "23vVpI2bnLClVhbr",
+          "name": "Gmail Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"message\": \"Error Occured!! Will be back soon\"\n}",
+        "options": {
+          "responseCode": 503
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        928,
+        320
+      ],
+      "id": "55c9cd62-401c-4190-b905-b4a97940482a",
+      "name": "Error Respond"
+    },
+    {
+      "parameters": {
+        "content": "## Setup Steps\n### 1. Configure Nodes\n- `Fetch Answer` node with microservice api url. `\\ask` is the endpoint.\n- `Log` node with mongodb crendentials and add proper collection.\n- `Failure Alert` node with gmail credentials. also set the `To` mail id.\n\n\n### 2. Test Webhook\n- Note the generated **Webhook URL** (e.g., `/webhook/ask`).\n- Test the endpoint using Postman:\n  ```bash\n  POST https://<your-n8n-domain>/webhook/ask\n  Content-Type: application/json\n  {\n    \"question\": \"Explain anatomy of eyes\"\n  }",
+        "height": 384,
+        "width": 576
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        224,
+        -880
+      ],
+      "typeVersion": 1,
+      "id": "c6d3e786-72cb-484b-8b54-fdaa5a3b6ad2",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Node Usage Summary — QA Orchestration\n**1. Webhook**  \nReceives incoming questions via POST request (entry point of the workflow).\n\n**2. Extract Question**  \nParses and extracts the question text from the webhook payload.\n\n**3. Start Timer**  \nRecords the request start time to measure total latency later.\n\n**4. Fetch Answer**  \nSends the extracted question to the backend QA API (`/ask`) and retrieves the main answer.\n\n**5. Latency Calculator**  \nCalculates time taken (in ms) between the start and completion of the request.\n\n**6. Set Data**  \nPrepares structured data (question, answer, latency, sources) for logging and output.\n\n**7. Log**  \nInserts key data (`request`, `response`, `latency_in_ms`) into the MongoDB `log` collection for monitoring.\n\n**8. Fetch Sources**  \nFetches supporting document or reference links related to the question.\n\n**9. Fetch Documents**  \nPulls detailed document data from the knowledge source or RAG system.\n\n**10. Remove Duplicates**  \nEnsures only unique documents are processed further (removes repetition).\n\n**11. Final Unique Documents**  \nAggregates cleaned and unique document list for the final output.\n\n**12. Merge**  \nCombines QA response, latency info, and document list into one unified result.\n\n**13. Respond to Webhook**  \nSends the final JSON/text response back to the requester (success path).\n\n**14. Error Respond**  \nReturns a structured error message to the client if something fails.\n\n**15. Failure Alert** \nSends an email alert with error details for quick issue notification.\n",
+        "height": 880,
+        "width": 720
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -544,
+        -880
+      ],
+      "typeVersion": 1,
+      "id": "4fee96e3-1fd1-4007-ab5d-1694d69afa33",
+      "name": "Sticky Note1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Data": {
+      "main": [
+        [
+          {
+            "node": "Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Sources",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch Answer": {
+      "main": [
+        [
+          {
+            "node": "Latency Calculator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Latency Calculator": {
+      "main": [
+        [
+          {
+            "node": "Set Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Timer": {
+      "main": [
+        [
+          {
+            "node": "Fetch Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Failure Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Question": {
+      "main": [
+        [
+          {
+            "node": "Start Timer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Documents": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Sources": {
+      "main": [
+        [
+          {
+            "node": "Fetch Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Final Unique Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Unique Documents": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Respond": {
+      "main": [
+        [
+          {
+            "node": "Failure Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": -1,
+    "availableInMCP": false,
+    "errorWorkflow": "En2iEVmv5rPmdxuc"
+  },
+  "versionId": "5971d819-553e-47ff-abfa-b51b805f5258",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "74dbfa1e4f6f0d74495e94de16c36e6b828d2e75b6d9519f6dc4ce077c567879"
+  },
+  "id": "En2iEVmv5rPmdxuc",
+  "tags": []
+}
