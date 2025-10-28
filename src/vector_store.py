@@ -9,8 +9,8 @@ import logging
 
 import chromadb
 
-from config import Settings, get_settings
-from openai_client import OpenAIClient
+from src.config import Settings, get_settings
+from src.openai_client import OpenAIClient
 
 logger = logging.getLogger(__name__)
 

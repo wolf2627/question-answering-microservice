@@ -115,7 +115,8 @@ class OpenAIClient:
                 backoff *= 2
 
     async def _stream_with_retry( self, operation: Callable[[], AsyncGenerator[str, None]], *, max_duration: Optional[float] = None, idle_timeout: Optional[float] = None ) -> AsyncGenerator[str, None]:
-       """ Executes an asynchronous streaming operation with retry and exponential backoff."""
+
+        """ Executes an asynchronous streaming operation with retry and exponential backoff."""
         attempt = 0
         backoff = self._config.initial_backoff
 

@@ -18,9 +18,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from config import Settings, get_settings
-from vector_store import DocumentChunk, get_vector_store
-from openai_client import OpenAIClient, OpenAIClientConfig
+from src.config import Settings, get_settings
+from src.vector_store import DocumentChunk, get_vector_store
+from src.openai_client import OpenAIClient, OpenAIClientConfig
 
 # Variables
 SUPPORTED_FILE_TYPES = {".txt", ".md", ".pdf", ".pptx"}
