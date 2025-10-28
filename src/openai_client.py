@@ -40,7 +40,7 @@ class OpenAIClient:
         target_model = model or self._config.embed_model
 
         def operation() -> list[list[float]]:
-            response = self._client.embeddings.create(model=target_model, input=list(texts))
+            response = self._client.embeddings.create(model=target_model, input=list(texts), dimensions=1536)
             return [item.embedding for item in response.data]
 
         return self._execute_with_retry(operation)
@@ -51,19 +51,14 @@ class OpenAIClient:
         embeddings = self.embed_texts([text], model=model)
         return embeddings[0]
 
-    def generate_answer(self, *, instructions: str,prompt: str, model: str, max_output_tokens: int, temperature: float) -> str:
+    def generate_answer(self, *, instructions: str,prompt: str, model: str, max_output_tokens: int, temperature: Optional[float] = None  ) -> str:
         """Synchronous generation (non-streaming)."""
         if max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be positive")
 
         def operation() -> str:
-            response = self._client.responses.create(
-                model=model,
-                instructions=instructions,
-                input=prompt,
-                temperature=temperature,
-                max_output_tokens=max_output_tokens,
-            )
+            # Add Temperature if provided
+            response = self._client.responses.create( model=model, instructions=instructions, input=prompt, max_output_tokens=max_output_tokens)
             return getattr(response, "output_text", "").strip()
 
         return self._execute_with_retry(operation)

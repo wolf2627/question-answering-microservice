@@ -34,16 +34,6 @@ class LoadedDocument:
     path: Path
     content: str
 
-# Moved to vector_store.py
-# @dataclass(frozen=True)
-# class DocumentChunk:
-#     """Single chunk of a source document ready to store in the vector index."""
-
-#     chunk_id: str
-#     document_id: str
-#     source_path: str
-#     chunk_index: int
-#     content: str
 
 # Loads all text documents from the specified root directory.
 def load_documents(root: Path) -> list[LoadedDocument]:
@@ -141,8 +131,10 @@ def build_chunks(documents: Sequence[LoadedDocument]) -> list[DocumentChunk]:
                     content=chunk_content,
                 )
             )
-        # print(chunks)
-        return chunks 
+    # print(chunks)
+    logger.info("Built %d chunks from %d documents", len(chunks), len(documents))
+    print(f"Built {len(chunks)} chunks from {len(documents)} documents")
+    return chunks 
     
 # Yields successive n-sized chunks from iterable.
 def _batched(iterable: Sequence[DocumentChunk], batch_size: int) -> Iterator[Sequence[DocumentChunk]]:
