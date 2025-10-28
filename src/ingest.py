@@ -6,6 +6,7 @@ from pathlib import Path
 from openai import OpenAI
 
 import os
+import time
 
 from typing import Iterator, Sequence
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 from config import Settings, get_settings
 from vector_store import DocumentChunk, get_vector_store
+from openai_client import OpenAIClient, OpenAIClientConfig
 
 # Variables
 SUPPORTED_FILE_TYPES = {".txt", ".md", ".pdf", ".pptx"}
@@ -111,6 +113,8 @@ def chunk_text(text: str, *, chunk_size: int, chunk_overlap: int) -> list[str]:
         chunks.append(" ".join(chunk_words))
         if end == len(words):
             break
+
+    # print(chunks)
     return chunks
 
 # Builds document chunks from loaded documents.
@@ -137,6 +141,7 @@ def build_chunks(documents: Sequence[LoadedDocument]) -> list[DocumentChunk]:
                     content=chunk_content,
                 )
             )
+        # print(chunks)
         return chunks 
     
 # Yields successive n-sized chunks from iterable.
@@ -167,7 +172,14 @@ def ingest_documents() -> int:
         logger.error("OPENAI_API_KEY environment variable not set.")
         raise RuntimeError("OPENAI_API_KEY environment variable not set.")
 
-    client = OpenAI(api_key=openai_api_key)
+    client = OpenAIClient(
+        OpenAIClientConfig(
+            api_key=openai_api_key,
+            embed_model=get_settings().embed_model,
+            timeout=get_settings().openai_timeout,
+            max_retries=get_settings().max_embed_retries,
+        )
+    )
 
     # Load the Vector Store
     store = get_vector_store()
@@ -179,42 +191,18 @@ def ingest_documents() -> int:
     logger.info("Embedding %s chunks in batches of %s", total_chunks, batch_size)
 
     processed = 0
-    max_retries = int(os.getenv("EMBED_MAX_RETRIES", 3))
-    backoff_base = float(os.getenv("EMBED_BACKOFF_BASE", 1.0))  # seconds
+    # max_retries = int(os.getenv("EMBED_MAX_RETRIES", 3))
+    # backoff_base = float(os.getenv("EMBED_BACKOFF_BASE", 1.0))  # seconds
 
     # Process chunks in batches
     for batch in _batched(chunks, batch_size):
         texts = [chunk.content for chunk in batch]
 
-        # Simple retry loop for transient network/API issues
-        last_exc = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                response = client.embeddings.create(
-                    input=texts,
-                    model="text-embedding-3-small",
-                    timeout=30,
-                )
-                # extract embeddings: response.data is a list of objects with .embedding
-                embeddings = [item.embedding for item in response.data]
-                print(embeddings)
-                break
-            except Exception as exc:
-                last_exc = exc
-                logger.warning(
-                    "Embedding batch failed (attempt %s/%s): %s",
-                    attempt,
-                    max_retries,
-                    exc,
-                )
-                if attempt < max_retries:
-                    sleep_time = backoff_base * (2 ** (attempt - 1))
-                    time.sleep(sleep_time)
-                else:
-                    logger.error("Max retries reached while embedding batch.")
-                    raise
+        # print(texts)
 
-        # TODO: upsert the embeddings here to your vector store
+        embeddings = client.embed_texts([chunk.content for chunk in batch])
+        
+        # print(embeddings)
 
         store.upsert(batch, embeddings)
 

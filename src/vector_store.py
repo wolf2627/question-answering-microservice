@@ -10,6 +10,7 @@ import logging
 import chromadb
 
 from config import Settings, get_settings
+from openai_client import OpenAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -137,14 +138,10 @@ class VectorStore:
 
         return retrieved
 
-    def similarity_search_text(self, query: str, *, client: openAI(key=openai_api_key), top_k: int) -> list[RetrievedChunk]:
+    def similarity_search_text(self, query: str, *, client: OpenAIClient , top_k: int) -> list[RetrievedChunk]:
         """Embed the query and perform a similarity search."""
-        responses = client.embeddings.create(
-            input=[query],
-            model="text-embedding-3-small",
-            timeout=30,
-        )
-        embedding = responses.data[0].embedding
+        
+        embedding = client.embed_text(query)
         return self.similarity_search(embedding, top_k=top_k)
 
 
