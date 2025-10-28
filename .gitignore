@@ -11,3 +11,6 @@ wheels/
 
 # documents
 documents/
+
+# Environment variables
+.env

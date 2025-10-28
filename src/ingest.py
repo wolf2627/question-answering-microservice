@@ -1,12 +1,26 @@
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from openai import OpenAI
+
+import os
+
+from typing import Iterator, Sequence
+
 from pptx import Presentation
 from pypdf import PdfReader
 
+import math
 import logging
 
 logger = logging.getLogger(__name__)
+
+from dotenv import load_dotenv
+load_dotenv()
+
+# Variables
+SUPPORTED_FILE_TYPES = {".txt", ".md", ".pdf", ".pptx"}
+DEFAULT_EMBED_BATCH_SIZE = 64
 
 # Represents a document that has been loaded from a file
 # with its file path and content. 
@@ -14,6 +28,16 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True) 
 class LoadedDocument:
     path: Path
+    content: str
+
+@dataclass(frozen=True)
+class DocumentChunk:
+    """Single chunk of a source document ready to store in the vector index."""
+
+    chunk_id: str
+    document_id: str
+    source_path: str
+    chunk_index: int
     content: str
 
 # Loads all text documents from the specified root directory.
@@ -66,10 +90,141 @@ def _read_text(path: Path)->str:
         logger.error(f"Error reading file {path}: {e}")
     return ""
 
+# Splits the given text into chunks of specified size with overlap.
+def chunk_text(text: str, *, chunk_size: int, chunk_overlap: int) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if chunk_overlap >= chunk_size:
+        raise ValueError("chunk_overlap must be smaller than chunk_size")
+
+    step = chunk_size - chunk_overlap
+    chunks: list[str] = []
+    for start in range(0, len(words), step):
+        end = min(start + chunk_size, len(words))
+        chunk_words = words[start:end]
+        chunks.append(" ".join(chunk_words))
+        if end == len(words):
+            break
+    return chunks
+
+# Builds document chunks from loaded documents.
+def build_chunks(documents: Sequence[LoadedDocument]) -> list[DocumentChunk]:
+    chunks: list[DocumentChunk] = []
+    for doc in documents:
+        relative = doc.path.relative_to("./documents")
+        document_id = relative.as_posix()
+        safe_document_id = document_id.replace("/", "__")
+        text_chunks = chunk_text(
+            doc.content,
+            chunk_size=800,
+            chunk_overlap=200,
+        )
+
+        for index, chunk_content in enumerate(text_chunks):
+            chunk_id = f"{safe_document_id}__chunk_{index}"
+            chunks.append(
+                DocumentChunk(
+                    chunk_id=chunk_id,
+                    document_id=document_id,
+                    source_path=str(relative),
+                    chunk_index=index,
+                    content=chunk_content,
+                )
+            )
+        return chunks 
+    
+# Yields successive n-sized chunks from iterable.
+def _batched(iterable: Sequence[DocumentChunk], batch_size: int) -> Iterator[Sequence[DocumentChunk]]:
+        for index in range(0, len(iterable), batch_size):
+            yield iterable[index : index + batch_size]
+
+# Main ingestion function
+def ingest_documents() -> int:
+    # Load Documents
+    documents = load_documents(Path("./documents"))
+    if not documents:
+        logger.info("No documents found")
+        return 0
+
+    print("Chunking documents...")
+
+    # Chunking the loaded documents
+    chunks = build_chunks(documents)
+    if not chunks:
+        print("No chunks created from documents.")
+        logger.info("Documents yielded no content after chunkting")
+        return 0
+
+    # Load API Key
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        logger.error("OPENAI_API_KEY environment variable not set.")
+        raise RuntimeError("OPENAI_API_KEY environment variable not set.")
+
+    client = OpenAI(api_key=openai_api_key)
+
+    total_chunks = len(chunks)
+    batch_size = int(os.getenv("EMBED_BATCH_SIZE", DEFAULT_EMBED_BATCH_SIZE))
+    batch_size = max(1, batch_size)
+
+    logger.info("Embedding %s chunks in batches of %s", total_chunks, batch_size)
+
+    processed = 0
+    max_retries = int(os.getenv("EMBED_MAX_RETRIES", 3))
+    backoff_base = float(os.getenv("EMBED_BACKOFF_BASE", 1.0))  # seconds
+
+    # Process chunks in batches
+    for batch in _batched(chunks, batch_size):
+        texts = [chunk.content for chunk in batch]
+
+        # Simple retry loop for transient network/API issues
+        last_exc = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = client.embeddings.create(
+                    input=texts,
+                    model="text-embedding-3-small",
+                    timeout=30,
+                )
+                # extract embeddings: response.data is a list of objects with .embedding
+                embeddings = [item.embedding for item in response.data]
+                print(embeddings)
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Embedding batch failed (attempt %s/%s): %s",
+                    attempt,
+                    max_retries,
+                    exc,
+                )
+                if attempt < max_retries:
+                    sleep_time = backoff_base * (2 ** (attempt - 1))
+                    time.sleep(sleep_time)
+                else:
+                    logger.error("Max retries reached while embedding batch.")
+                    raise
+
+        # TODO: upsert the embeddings here to your vector store
+
+        # For now, just print or log a small confirmation (remove in prod)
+        logger.debug("Embedded %s items in current batch", len(embeddings))
+        print(f"Embedded {len(embeddings)} items in current batch")
+
+        processed += len(batch)
+        percent = math.floor((processed / total_chunks) * 100)
+        logger.info("Indexed %s/%s chunks (%s%%)", processed, total_chunks, percent)
+
+    logger.info("Completed ingestion for %s documents", len(documents))
+    print(f"Completed ingestion for {len(documents)} documents")
+    return total_chunks
 
 def main():
     print("Starting document ingestion...")
-    print(load_documents(Path("./documents")))
+    print(ingest_documents())
 
 if __name__ == "__main__":
     main()
