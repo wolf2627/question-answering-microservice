@@ -9,9 +9,6 @@ wheels/
 # Virtual environments
 .venv
 
-# documents
-documents/
-
 # Environment variables
 .env
 .env.local
