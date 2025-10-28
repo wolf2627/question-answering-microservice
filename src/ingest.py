@@ -1,3 +1,5 @@
+""" Document ingestion module. """
+
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -16,6 +18,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from config import Settings, get_settings
+from vector_store import DocumentChunk, get_vector_store
 
 # Variables
 SUPPORTED_FILE_TYPES = {".txt", ".md", ".pdf", ".pptx"}
@@ -29,15 +32,16 @@ class LoadedDocument:
     path: Path
     content: str
 
-@dataclass(frozen=True)
-class DocumentChunk:
-    """Single chunk of a source document ready to store in the vector index."""
+# Moved to vector_store.py
+# @dataclass(frozen=True)
+# class DocumentChunk:
+#     """Single chunk of a source document ready to store in the vector index."""
 
-    chunk_id: str
-    document_id: str
-    source_path: str
-    chunk_index: int
-    content: str
+#     chunk_id: str
+#     document_id: str
+#     source_path: str
+#     chunk_index: int
+#     content: str
 
 # Loads all text documents from the specified root directory.
 def load_documents(root: Path) -> list[LoadedDocument]:
@@ -165,6 +169,9 @@ def ingest_documents() -> int:
 
     client = OpenAI(api_key=openai_api_key)
 
+    # Load the Vector Store
+    store = get_vector_store()
+
     total_chunks = len(chunks)
     batch_size = int(os.getenv("EMBED_BATCH_SIZE", DEFAULT_EMBED_BATCH_SIZE))
     batch_size = max(1, batch_size)
@@ -208,6 +215,8 @@ def ingest_documents() -> int:
                     raise
 
         # TODO: upsert the embeddings here to your vector store
+
+        store.upsert(batch, embeddings)
 
         # For now, just print or log a small confirmation (remove in prod)
         logger.debug("Embedded %s items in current batch", len(embeddings))

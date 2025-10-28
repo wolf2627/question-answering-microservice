@@ -16,3 +16,5 @@ documents/
 .env
 .env.local
 .envrc
+
+embeddings/*

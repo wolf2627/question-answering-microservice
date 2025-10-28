@@ -20,6 +20,9 @@ class Settings:
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "50"))
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
 
+    embeddings_path: Path = Path(os.getenv("CHROMA_PATH", "embeddings"))
+    collection_name: str = os.getenv("COLLECTION_NAME", "documents")
+    
 
 # Caches and returns the settings instance
 # This ensures that settings are only loaded once.
