@@ -7,6 +7,7 @@ from openai import OpenAI
 
 import os
 import time
+import argparse
 
 from typing import Iterator, Sequence
 
@@ -16,11 +17,12 @@ from pypdf import PdfReader
 import math
 import logging
 
-logger = logging.getLogger(__name__)
-
 from src.config import Settings, get_settings
 from src.vector_store import DocumentChunk, get_vector_store
 from src.openai_client import OpenAIClient, OpenAIClientConfig
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 # Variables
 SUPPORTED_FILE_TYPES = {".txt", ".md", ".pdf", ".pptx"}
@@ -42,7 +44,7 @@ def load_documents(root: Path) -> list[LoadedDocument]:
     # Check if the root path exists 
     if not root.exists():
         logger.warning(f"Documents Directory {root} does not exist.")
-        print(f"Documents Directory {root} does not exist.")
+        # print(f"Documents Directory {root} does not exist.")
         return documents
     
     # Iterate and check if each file is supported or not
@@ -50,14 +52,16 @@ def load_documents(root: Path) -> list[LoadedDocument]:
         if file_path.is_file() and file_path.suffix.lower() not in SUPPORTED_FILE_TYPES:
             logger.info(f"Skipping unsupported file type: {file_path}")
             continue
-        print(f"Processing file: {file_path}")
+        # print(f"Processing file: {file_path}")
+        logger.info(f"Processing file: {file_path}")
         text = _read_text(file_path)
         if text.strip():
             documents.append(LoadedDocument(path=file_path, content=text))
         else:
             logger.debug(f"No content extracted from file: {file_path}. Skipping.")
     
-    print(f"Loaded {len(documents)} documents.")
+    # print(f"Loaded {len(documents)} documents.")
+    logger.info(f"Loaded {len(documents)} documents.")
     return documents
         
 # Reads the text content from a file at the given path.
@@ -108,16 +112,17 @@ def chunk_text(text: str, *, chunk_size: int, chunk_overlap: int) -> list[str]:
     return chunks
 
 # Builds document chunks from loaded documents.
-def build_chunks(documents: Sequence[LoadedDocument]) -> list[DocumentChunk]:
+def build_chunks(documents: Sequence[LoadedDocument], settings: Settings) -> list[DocumentChunk]:
+    active_settings = settings 
     chunks: list[DocumentChunk] = []
     for doc in documents:
-        relative = doc.path.relative_to(get_settings().docs_path)
+        relative = doc.path.relative_to(active_settings.docs_path)
         document_id = relative.as_posix()
         safe_document_id = document_id.replace("/", "__")
         text_chunks = chunk_text(
             doc.content,
-            chunk_size=get_settings().chunk_size,
-            chunk_overlap=get_settings().chunk_overlap,
+            chunk_size=active_settings.chunk_size,
+            chunk_overlap=active_settings.chunk_overlap,
         )
 
         for index, chunk_content in enumerate(text_chunks):
@@ -133,7 +138,7 @@ def build_chunks(documents: Sequence[LoadedDocument]) -> list[DocumentChunk]:
             )
     # print(chunks)
     logger.info("Built %d chunks from %d documents", len(chunks), len(documents))
-    print(f"Built {len(chunks)} chunks from {len(documents)} documents")
+    # print(f"Built {len(chunks)} chunks from {len(documents)} documents")
     return chunks 
     
 # Yields successive n-sized chunks from iterable.
@@ -142,24 +147,28 @@ def _batched(iterable: Sequence[DocumentChunk], batch_size: int) -> Iterator[Seq
             yield iterable[index : index + batch_size]
 
 # Main ingestion function
-def ingest_documents() -> int:
+def ingest_documents(settings: Settings | None = None) -> int:
+
+    active_settings = settings or get_settings()
+
     # Load Documents
-    documents = load_documents(get_settings().docs_path)
+    documents = load_documents(active_settings.docs_path)
     if not documents:
         logger.info("No documents found")
         return 0
 
-    print("Chunking documents...")
+    # print("Chunking documents...")
+    logger.info("Chunking documents...")
 
     # Chunking the loaded documents
-    chunks = build_chunks(documents)
+    chunks = build_chunks(documents, active_settings)
     if not chunks:
-        print("No chunks created from documents.")
-        logger.info("Documents yielded no content after chunkting")
+        # print("No chunks created from documents.")
+        logger.warning("Documents yielded no content after chunkting")
         return 0
 
     # Load API Key
-    openai_api_key = get_settings().openai_api_key
+    openai_api_key = active_settings.openai_api_key
     if not openai_api_key:
         logger.error("OPENAI_API_KEY environment variable not set.")
         raise RuntimeError("OPENAI_API_KEY environment variable not set.")
@@ -167,9 +176,9 @@ def ingest_documents() -> int:
     client = OpenAIClient(
         OpenAIClientConfig(
             api_key=openai_api_key,
-            embed_model=get_settings().embed_model,
-            timeout=get_settings().openai_timeout,
-            max_retries=get_settings().max_embed_retries,
+            embed_model=active_settings.embed_model,
+            timeout=active_settings.openai_timeout,
+            max_retries=active_settings.max_embed_retries,
         )
     )
 
@@ -198,21 +207,43 @@ def ingest_documents() -> int:
 
         store.upsert(batch, embeddings)
 
-        # For now, just print or log a small confirmation (remove in prod)
         logger.debug("Embedded %s items in current batch", len(embeddings))
-        print(f"Embedded {len(embeddings)} items in current batch")
+        # print(f"Embedded {len(embeddings)} items in current batch")
 
         processed += len(batch)
         percent = math.floor((processed / total_chunks) * 100)
         logger.info("Indexed %s/%s chunks (%s%%)", processed, total_chunks, percent)
 
     logger.info("Completed ingestion for %s documents", len(documents))
-    print(f"Completed ingestion for {len(documents)} documents")
+    # print(f"Completed ingestion for {len(documents)} documents")
     return total_chunks
 
-def main():
-    print("Starting document ingestion...")
-    print(ingest_documents())
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Ingest project documents into Chroma")
+    parser.add_argument(
+        "--docs",
+        type=Path,
+        help="Override docs directory (defaults to DOCS_PATH or docs/)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        help="Override embedding batch size",
+    )
+    return parser.parse_args()
+
+def main() -> None:
+    args = _parse_args()
+    settings = get_settings()
+    overrides: dict[str, object] = {}
+    if args.docs:
+        overrides["docs_path"] = args.docs
+    if args.batch_size:
+        os.environ["EMBED_BATCH_SIZE"] = str(args.batch_size)
+    if overrides:
+        settings = replace(settings, **overrides)
+    ingest_documents(settings)
+
 
 if __name__ == "__main__":
     main()
