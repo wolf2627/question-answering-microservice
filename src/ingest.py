@@ -15,12 +15,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from dotenv import load_dotenv
-load_dotenv()
+from config import Settings, get_settings
 
 # Variables
 SUPPORTED_FILE_TYPES = {".txt", ".md", ".pdf", ".pptx"}
-DEFAULT_EMBED_BATCH_SIZE = 64
+DEFAULT_EMBED_BATCH_SIZE = get_settings().embed_batch_size or 64
 
 # Represents a document that has been loaded from a file
 # with its file path and content. 
@@ -52,7 +51,7 @@ def load_documents(root: Path) -> list[LoadedDocument]:
     
     # Iterate and check if each file is supported or not
     for file_path in root.rglob('*'):
-        if file_path.is_file() and file_path.suffix.lower() not in {'.txt', '.md', '.pdf', '.pptx'}:
+        if file_path.is_file() and file_path.suffix.lower() not in SUPPORTED_FILE_TYPES:
             logger.info(f"Skipping unsupported file type: {file_path}")
             continue
         print(f"Processing file: {file_path}")
@@ -96,7 +95,7 @@ def chunk_text(text: str, *, chunk_size: int, chunk_overlap: int) -> list[str]:
     if not words:
         return []
     if chunk_size <= 0:
-        raise ValueError("chunk_size must be positive")
+        raise ValueError("chunk_size must be greater than 0")
     if chunk_overlap >= chunk_size:
         raise ValueError("chunk_overlap must be smaller than chunk_size")
 
@@ -114,13 +113,13 @@ def chunk_text(text: str, *, chunk_size: int, chunk_overlap: int) -> list[str]:
 def build_chunks(documents: Sequence[LoadedDocument]) -> list[DocumentChunk]:
     chunks: list[DocumentChunk] = []
     for doc in documents:
-        relative = doc.path.relative_to("./documents")
+        relative = doc.path.relative_to(get_settings().docs_path)
         document_id = relative.as_posix()
         safe_document_id = document_id.replace("/", "__")
         text_chunks = chunk_text(
             doc.content,
-            chunk_size=800,
-            chunk_overlap=200,
+            chunk_size=get_settings().chunk_size,
+            chunk_overlap=get_settings().chunk_overlap,
         )
 
         for index, chunk_content in enumerate(text_chunks):
@@ -144,7 +143,7 @@ def _batched(iterable: Sequence[DocumentChunk], batch_size: int) -> Iterator[Seq
 # Main ingestion function
 def ingest_documents() -> int:
     # Load Documents
-    documents = load_documents(Path("./documents"))
+    documents = load_documents(get_settings().docs_path)
     if not documents:
         logger.info("No documents found")
         return 0
@@ -159,7 +158,7 @@ def ingest_documents() -> int:
         return 0
 
     # Load API Key
-    openai_api_key = os.getenv("OPENAI_API_KEY")
+    openai_api_key = get_settings().openai_api_key
     if not openai_api_key:
         logger.error("OPENAI_API_KEY environment variable not set.")
         raise RuntimeError("OPENAI_API_KEY environment variable not set.")

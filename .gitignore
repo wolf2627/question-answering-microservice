@@ -14,3 +14,6 @@ documents/
 
 # Environment variables
 .env
+.env.*
+.env.local
+.envrc
